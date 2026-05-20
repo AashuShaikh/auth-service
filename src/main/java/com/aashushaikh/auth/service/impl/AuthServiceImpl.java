@@ -6,22 +6,19 @@ import com.aashushaikh.auth.dto.CreateUserProfileRequest;
 import com.aashushaikh.auth.dto.LoginRequest;
 import com.aashushaikh.auth.dto.RefreshTokenRequest;
 import com.aashushaikh.auth.dto.RegisterRequest;
+import com.aashushaikh.auth.exception.DuplicateResourceException;
 import com.aashushaikh.auth.model.Role;
 import com.aashushaikh.auth.model.User;
 import com.aashushaikh.auth.repository.UserRepository;
 import com.aashushaikh.auth.service.AuthService;
 import com.aashushaikh.auth.service.JwtService;
+import io.jsonwebtoken.JwtException;
 import lombok.RequiredArgsConstructor;
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-
-import java.util.UUID;
-import java.util.concurrent.TimeUnit;
 
 @Service
 @RequiredArgsConstructor
@@ -31,20 +28,15 @@ public class AuthServiceImpl implements AuthService {
     private final PasswordEncoder passwordEncoder;
     private final JwtService jwtService;
     private final AuthenticationManager authenticationManager;
-    private final StringRedisTemplate redisTemplate;
     private final UserServiceClient userServiceClient;
 
-    @Value("${jwt.refresh-token.expiration}")
-    private long refreshTokenExpiration;
-
     @Override
-    @Transactional
     public AuthResponse register(RegisterRequest request) {
         if (userRepository.existsByEmail(request.getEmail())) {
-            throw new RuntimeException("Email already in use");
+            throw new DuplicateResourceException("Email already in use");
         }
         if (userRepository.existsByUsername(request.getUsername())) {
-            throw new RuntimeException("Username already taken");
+            throw new DuplicateResourceException("Username already taken");
         }
 
         User user = User.builder()
@@ -54,11 +46,19 @@ public class AuthServiceImpl implements AuthService {
                 .role(Role.USER)
                 .build();
 
+        // T1: commit credentials before calling the user service
         userRepository.save(user);
 
-        userServiceClient.createUserProfile(
-                new CreateUserProfileRequest(user.getId(), user.getUsername(), user.getEmail())
-        );
+        // T2: create profile; if this fails run compensating transaction C1
+        try {
+            userServiceClient.createUserProfile(
+                    new CreateUserProfileRequest(user.getId(), user.getUsername(), user.getEmail())
+            );
+        } catch (Exception e) {
+            // C1: roll back T1 — remove credentials so no orphaned profile exists without auth
+            userRepository.deleteById(user.getId());
+            throw new RuntimeException("Registration failed. Please try again.");
+        }
 
         return generateTokens(user);
     }
@@ -77,38 +77,38 @@ public class AuthServiceImpl implements AuthService {
 
     @Override
     public AuthResponse refresh(RefreshTokenRequest request) {
-        String userId = redisTemplate.opsForValue().get("refresh_token:" + request.getRefreshToken());
-
-        if (userId == null) {
+        String userId;
+        try {
+            userId = jwtService.extractUserIdFromRefreshToken(request.getRefreshToken());
+        } catch (JwtException e) {
             throw new RuntimeException("Invalid or expired refresh token");
         }
 
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new RuntimeException("User not found"));
 
-        redisTemplate.delete("refresh_token:" + request.getRefreshToken());
         return generateTokens(user);
     }
 
     @Override
     public void logout(RefreshTokenRequest request) {
-        redisTemplate.delete("refresh_token:" + request.getRefreshToken());
+        // stateless — client discards tokens on logout
+    }
+
+    @Override
+    @Transactional
+    public void deactivateUser(String id) {
+        User user = userRepository.findById(id)
+                .orElseThrow(() -> new RuntimeException("User not found: " + id));
+        user.setDeleted(true);
+        user.setActive(false);
+        userRepository.save(user);
     }
 
     private AuthResponse generateTokens(User user) {
-        String accessToken = jwtService.generateAccessToken(user);
-        String refreshToken = UUID.randomUUID().toString();
-
-        redisTemplate.opsForValue().set(
-                "refresh_token:" + refreshToken,
-                user.getId(),
-                refreshTokenExpiration,
-                TimeUnit.MILLISECONDS
-        );
-
         return AuthResponse.builder()
-                .accessToken(accessToken)
-                .refreshToken(refreshToken)
+                .accessToken(jwtService.generateAccessToken(user))
+                .refreshToken(jwtService.generateRefreshToken(user))
                 .build();
     }
 }

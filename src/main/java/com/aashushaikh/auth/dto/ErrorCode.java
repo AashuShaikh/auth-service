@@ -1,0 +1,13 @@
+package com.aashushaikh.auth.dto;
+
+public enum ErrorCode {
+    RESOURCE_NOT_FOUND,
+    ROUTE_NOT_FOUND,
+    METHOD_NOT_ALLOWED,
+    VALIDATION_FAILED,
+    DUPLICATE_RESOURCE,
+    BAD_REQUEST,
+    UNAUTHORIZED,
+    FORBIDDEN,
+    INTERNAL_SERVER_ERROR
+}

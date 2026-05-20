@@ -14,4 +14,6 @@ public interface AuthService {
     AuthResponse refresh(RefreshTokenRequest request);
 
     void logout(RefreshTokenRequest request);
+
+    void deactivateUser(String id);
 }

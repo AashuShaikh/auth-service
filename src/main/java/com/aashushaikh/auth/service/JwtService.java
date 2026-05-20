@@ -22,22 +22,43 @@ public class JwtService {
     @Value("${jwt.access-token.expiration}")
     private long accessTokenExpiration;
 
+    @Value("${jwt.refresh-token.expiration}")
+    private long refreshTokenExpiration;
+
     public String generateAccessToken(User user) {
         Map<String, Object> claims = new HashMap<>();
         claims.put("role", user.getRole().name());
         claims.put("username", user.getUsername());
+        claims.put("type", "access");
 
         return Jwts.builder()
                 .claims(claims)
                 .subject(user.getId())
                 .issuedAt(new Date())
                 .expiration(new Date(System.currentTimeMillis() + accessTokenExpiration))
-                .signWith(getSigningKey())
+                .signWith(getSigningKey(), Jwts.SIG.HS256)
                 .compact();
     }
 
-    public String extractUserId(String token) {
-        return extractClaims(token).getSubject();
+    public String generateRefreshToken(User user) {
+        Map<String, Object> claims = new HashMap<>();
+        claims.put("type", "refresh");
+
+        return Jwts.builder()
+                .claims(claims)
+                .subject(user.getId())
+                .issuedAt(new Date())
+                .expiration(new Date(System.currentTimeMillis() + refreshTokenExpiration))
+                .signWith(getSigningKey(), Jwts.SIG.HS256)
+                .compact();
+    }
+
+    public String extractUserIdFromRefreshToken(String token) {
+        Claims claims = extractClaims(token);
+        if (!"refresh".equals(claims.get("type"))) {
+            throw new io.jsonwebtoken.JwtException("Not a refresh token");
+        }
+        return claims.getSubject();
     }
 
     public boolean isTokenValid(String token) {
