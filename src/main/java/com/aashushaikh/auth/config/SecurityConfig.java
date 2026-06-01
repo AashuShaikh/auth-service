@@ -1,6 +1,7 @@
 package com.aashushaikh.auth.config;
 
 import com.aashushaikh.auth.repository.UserRepository;
+import com.aashushaikh.auth.security.RateLimitFilter;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
@@ -20,6 +21,7 @@ import org.springframework.security.oauth2.jose.jws.MacAlgorithm;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.security.oauth2.jwt.NimbusJwtDecoder;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 
 import javax.crypto.spec.SecretKeySpec;
 import java.util.Base64;
@@ -30,6 +32,7 @@ import java.util.Base64;
 public class SecurityConfig {
 
     private final UserRepository userRepository;
+    private final RateLimitFilter rateLimitFilter;
 
     @Value("${jwt.secret}")
     private String secret;
@@ -50,6 +53,7 @@ public class SecurityConfig {
                 .anyRequest().authenticated()
             )
             .authenticationProvider(authenticationProvider())
+            .addFilterBefore(rateLimitFilter, UsernamePasswordAuthenticationFilter.class)
             .oauth2ResourceServer(oauth2 -> oauth2
                 .jwt(jwt -> jwt.decoder(jwtDecoder()))
             );

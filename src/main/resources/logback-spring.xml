@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration>
+    <include resource="org/springframework/boot/logging/logback/defaults.xml"/>
+
+    <!--
+        Custom converter that masks sensitive values in log output.
+        Replaces the actual value of password, token, secret, authorization fields
+        with [REDACTED] so they never appear in log files or console output.
+    -->
+    <conversionRule conversionWord="maskedMsg"
+                    converterClass="com.aashushaikh.auth.logging.MaskingConverter"/>
+
+    <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder>
+            <pattern>%d{yyyy-MM-dd HH:mm:ss.SSS} %5p [%t] %logger{36} - %maskedMsg%n</pattern>
+        </encoder>
+    </appender>
+
+    <root level="INFO">
+        <appender-ref ref="CONSOLE"/>
+    </root>
+
+    <logger name="com.aashushaikh" level="DEBUG"/>
+</configuration>
